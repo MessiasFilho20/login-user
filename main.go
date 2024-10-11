@@ -2,41 +2,46 @@ package main
 
 import (
 	"log"
+	"login-user/controller"
+	"login-user/middleware"
 	"login-user/prisma/db"
+	"login-user/service"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
-
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/gorilla/mux"
+	"github.com/joho/godotenv"
 )
 
-var jwtSecret = []byte("Uagw|2rWcrvt,KO8£$QWga;5[9LC58Gz8kzH%DH&£q]5iaE2l")
-
-type Claims struct {
-	Email string `json:"email"`
-	jwt.RegisteredClaims
-}
-
-var client *db.PrismaClient
-
 func main() {
-	client = db.NewClient()
-	err := client.Prisma.Connect()
+	err := godotenv.Load()
 
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Erro ao carregar .env: %v", err)
+	}
+
+	client := db.NewClient()
+
+	if err := client.Prisma.Connect(); err != nil {
+		log.Fatalf("Erro ao conectar Prisma: %v", err)
 	}
 
 	defer client.Prisma.Disconnect()
 
-	r := gin.Default()
+	userService := service.UserService{Client: client}
+	userController := controller.UserController{UserService: userService}
 
-	r.POST("/regiister")
+	r := mux.NewRouter()
 
-	r.GET("teste", func(ctx *gin.Context) {
-		ctx.String(http.StatusOK, "hello word")
-		ctx.JSON(200, gin.H{"messege": "teste okay"})
-	})
+	r.HandleFunc("/register", userController.RegisterUser).Methods("POST")
+	r.HandleFunc("/login", userController.LoginUser).Methods("POST")
 
-	r.Run("localhost:8000")
+	// Rotas
+	protected := r.PathPrefix("/api").Subrouter()
+	protected.Use(middleware.AuthMiddleware)
+	protected.HandleFunc("/protected-endpoint", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Você acessou uma rota protegida!"))
+	}).Methods("GET")
+
+	log.Println("Servidor rodando na porta 8000")
+	log.Fatal(http.ListenAndServe("localhost:8000", r))
 }
